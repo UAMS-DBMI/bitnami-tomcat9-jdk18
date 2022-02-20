@@ -20,8 +20,13 @@
 owned_by() {
     local path="${1:?path is missing}"
     local owner="${2:?owner is missing}"
+    local group="${3:-}"
 
-    chown "$owner":"$owner" "$path"
+    if [[ -n $group ]]; then
+        chown "$owner":"$group" "$path"
+    else
+        chown "$owner":"$owner" "$path"
+    fi
 }
 
 ########################
@@ -34,29 +39,83 @@ owned_by() {
 #########################
 ensure_dir_exists() {
     local dir="${1:?directory is missing}"
-    local owner="${2:-}"
+    local owner_user="${2:-}"
+    local owner_group="${3:-}"
 
     mkdir -p "${dir}"
-    if [[ -n $owner ]]; then
-        owned_by "$dir" "$owner"
+    if [[ -n $owner_user ]]; then
+        owned_by "$dir" "$owner_user" "$owner_group"
     fi
 }
 
 ########################
 # Checks whether a directory is empty or not
-# Arguments:
+# arguments:
 #   $1 - directory
-# Returns:
-#   Boolean
+# returns:
+#   boolean
 #########################
 is_dir_empty() {
-    local dir="${1:?missing directory}"
-
+    local -r path="${1:?missing directory}"
+    # Calculate real path in order to avoid issues with symlinks
+    local -r dir="$(realpath "$path")"
     if [[ ! -e "$dir" ]] || [[ -z "$(ls -A "$dir")" ]]; then
         true
     else
         false
     fi
+}
+
+########################
+# Checks whether a mounted directory is empty or not
+# arguments:
+#   $1 - directory
+# returns:
+#   boolean
+#########################
+is_mounted_dir_empty() {
+    local dir="${1:?missing directory}"
+
+    if is_dir_empty "$dir" || find "$dir" -mindepth 1 -maxdepth 1 -not -name ".snapshot" -not -name "lost+found" -exec false {} +; then
+        true
+    else
+        false
+    fi
+}
+
+########################
+# Checks whether a file can be written to or not
+# arguments:
+#   $1 - file
+# returns:
+#   boolean
+#########################
+is_file_writable() {
+    local file="${1:?missing file}"
+    local dir
+    dir="$(dirname "$file")"
+
+    if [[ (-f "$file" && -w "$file") || (! -f "$file" && -d "$dir" && -w "$dir") ]]; then
+        true
+    else
+        false
+    fi
+}
+
+########################
+# Relativize a path
+# arguments:
+#   $1 - path
+#   $2 - base
+# returns:
+#   None
+#########################
+relativize() {
+    local -r path="${1:?missing path}"
+    local -r base="${2:?missing base}"
+    pushd "$base" >/dev/null || exit
+    realpath -q --no-symlinks --relative-base="$base" "$path" | sed -e 's|^/$|.|' -e 's|^/||'
+    popd >/dev/null || exit
 }
 
 ########################
@@ -84,31 +143,31 @@ configure_permissions_ownership() {
     shift 1
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            -f|--file-mode)
-                shift
-                file_mode="${1:?missing mode for files}"
-                ;;
-            -d|--dir-mode)
-                shift
-                dir_mode="${1:?missing mode for directories}"
-                ;;
-            -u|--user)
-                shift
-                user="${1:?missing user}"
-                ;;
-            -g|--group)
-                shift
-                group="${1:?missing group}"
-                ;;
-            *)
-                echo "Invalid command line flag $1" >&2
-                return 1
-                ;;
+        -f | --file-mode)
+            shift
+            file_mode="${1:?missing mode for files}"
+            ;;
+        -d | --dir-mode)
+            shift
+            dir_mode="${1:?missing mode for directories}"
+            ;;
+        -u | --user)
+            shift
+            user="${1:?missing user}"
+            ;;
+        -g | --group)
+            shift
+            group="${1:?missing group}"
+            ;;
+        *)
+            echo "Invalid command line flag $1" >&2
+            return 1
+            ;;
         esac
         shift
     done
 
-    read -r -a filepaths <<< "$paths"
+    read -r -a filepaths <<<"$paths"
     for p in "${filepaths[@]}"; do
         if [[ -e "$p" ]]; then
             if [[ -n $dir_mode ]]; then
