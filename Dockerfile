@@ -32,6 +32,8 @@ ENV BITNAMI_APP_NAME="tomcat" \
     JAVA_HOME="/opt/bitnami/java" \
     PATH="/opt/bitnami/java/bin:/opt/bitnami/tomcat/bin:/opt/bitnami/common/bin:$PATH"
 
+RUN echo "tomcat.util.scan.StandardJarScanFilter.jarsToSkip=bcprov*.jar" >> /opt/bitnami/tomcat/conf/catalina.properties
+
 EXPOSE 8080
 
 USER 1001
